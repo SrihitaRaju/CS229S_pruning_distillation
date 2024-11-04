@@ -1,6 +1,7 @@
 import os
 import torch
-from datasets import load_dataset, load_from_disk, Dataset
+from datasets import load_dataset as hf_load_dataset
+from datasets import load_from_disk, Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import shutil
 
@@ -26,7 +27,7 @@ class ModelLoader:
             model = AutoModelForCausalLM.from_pretrained(
                 model_path, 
                 torch_dtype="auto", 
-                device_map={"": "cpu"}
+                device_map="auto"
             )
         except ValueError as e:
             print(f"Error loading model with auto device mapping: {e}")
@@ -44,7 +45,7 @@ class ModelLoader:
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 torch_dtype="auto",
-                device_map={"": "cpu"}
+                device_map="auto"
             )
         except ValueError as e:
             print(f"Error downloading model with auto device mapping: {e}")
@@ -62,7 +63,7 @@ class ModelLoader:
         
         return tokenizer, model
 
-    def load_dataset(self, dataset_name, split="train", sample_size=1000):
+    def load_dataset(self, dataset_name, split="train", sample_size=None):
         """Load or download a dataset based on its name and split."""
         dataset_path = os.path.join("datasets", dataset_name.replace('/', '-'), split)
         
@@ -82,12 +83,12 @@ class ModelLoader:
         if free_gb < 1:
             raise IOError(f"Insufficient disk space. {free_gb}GB available, need at least 1GB.")
             
-        dataset = load_dataset(
+        dataset = hf_load_dataset(
             dataset_name,
             split=split,
-            streaming=True
         )
-        dataset = list(dataset.take(sample_size))
+        if sample_size:
+            dataset = list(dataset.take(sample_size))
         
         save_path = os.path.join("datasets", dataset_name.replace('/', '-'), split)
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -96,14 +97,20 @@ class ModelLoader:
         
         return Dataset.from_list(dataset)
 
-def main():
+def load_model(model_name="meta-llama/Llama-3.2-1B-Instruct"):
     loader = ModelLoader()
-    
+    return loader.load_model(model_name)
+
+def load_dataset(dataset_name, split="train", sample_size=None):
+    loader = ModelLoader()
+    return loader.load_dataset(dataset_name, split, sample_size)
+
+def main():
     # Load or download model
-    tokenizer, model = loader.load_model()
+    tokenizer, model = load_model()
     
     # Load or download dataset
-    dataset = loader.load_dataset("openai/humaneval", split="test")
+    dataset = hf_load_dataset("openai/humaneval", split="test")
 
 if __name__ == "__main__":
     main()
