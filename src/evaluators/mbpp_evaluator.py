@@ -3,30 +3,13 @@ from typing import List, Dict, Any
 import evaluate
 import torch
 from evaluators.base_evaluator import BaseEvaluator
-from transformers import StoppingCriteria, StoppingCriteriaList
 
-class MultiSequenceStoppingCriteria(StoppingCriteria):
-    def __init__(self, tokenizer, stopping_sequences, prompt_length):
-        self.tokenizer = tokenizer
-        self.stopping_sequences = stopping_sequences
-        self.prompt_length = prompt_length
-
-    def __call__(self, input_ids, scores):
-        # Handle batch dimension
-        batch_size = input_ids.shape[0]
-        should_stop = torch.zeros(batch_size, dtype=torch.bool)
-        
-        for i in range(batch_size):
-            generated_text = self.tokenizer.decode(input_ids[i][self.prompt_length:])
-            should_stop[i] = any(seq in generated_text for seq in self.stopping_sequences)
-            
-        return should_stop.all()
 
 class MBPPEvaluator(BaseEvaluator):
     def __init__(self, model, tokenizer, batch_size: int = 8):
         super().__init__(model, tokenizer, batch_size)
         self.code_eval = evaluate.load('code_eval')
-        self.stopping_sequences = ["\n\n#", "\n\nassert", "\n\nprint", "\n\ndef", "\n\nif __name__"]
+        self.stopping_sequences = ["\n\n#", "\n\nassert", "\n\nprint", "\n\nif __name__"]
     
     def prepare_prompts(self, samples: List[Dict[str, Any]]) -> List[str]:
         """Prepare MBPP-style prompts for a batch"""
@@ -50,15 +33,6 @@ def solution"""
         )
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
         
-        # Create stopping criteria for batch
-        stopping_criteria = StoppingCriteriaList([
-            MultiSequenceStoppingCriteria(
-                self.tokenizer, 
-                self.stopping_sequences, 
-                inputs['input_ids'].shape[1]
-            )
-        ])
-
         # Generate completions
         with torch.no_grad():
             outputs = self.model.generate(
@@ -67,24 +41,13 @@ def solution"""
                 temperature=0.1,
                 pad_token_id=self.tokenizer.eos_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
-                stopping_criteria=stopping_criteria,
                 return_dict_in_generate=True,
                 output_scores=True
             )
         
         # Decode and clean completions
-        completions = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)
-        return [self.clean_completion(completion) for completion in completions]
-    
-    def clean_completion(self, completion: str) -> str:
-        """Clean up completion by removing trailing code"""
-        def_pos = completion.find('def solution')
-        marker_pattern = r'\n(#|assert|print|def|if __name__)'
-        match = re.search(marker_pattern, completion[def_pos:])
-        
-        if match:
-            return completion[:def_pos + match.start()].rstrip()
-        return completion.rstrip()
+        completions = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True, truncate_before_pattern=self.stopping_sequences)
+        return completions
 
     def evaluate_completions(self, completions: List[str], samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Evaluate completions using MBPP test cases for a batch"""
