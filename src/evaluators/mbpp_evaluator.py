@@ -3,6 +3,11 @@ from typing import List, Dict, Any
 import evaluate
 import torch
 from evaluators.base_evaluator import BaseEvaluator
+from itertools import islice
+
+def group_by_n(lst, n):
+    iterator = iter(lst)
+    return list(iter(lambda: list(islice(iterator, n)), []))
 
 
 class MBPPEvaluator(BaseEvaluator):
@@ -21,7 +26,7 @@ def solution"""
             for sample in samples
         ]
 
-    def generate_completions(self, prompts: List[str]) -> List[str]:
+    def generate_completions(self, prompts: List[str], k: int = 1) -> List[str]:
         """Generate completions with MBPP-specific stopping criteria for a batch"""
         # Tokenize all prompts
         if self.tokenizer.pad_token is None:
@@ -37,6 +42,7 @@ def solution"""
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
         
         # Generate completions
+        # SWITCH TO BEAM SEARCH or TOP-K sampling
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
@@ -45,14 +51,16 @@ def solution"""
                 pad_token_id=self.tokenizer.eos_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
                 return_dict_in_generate=True,
-                output_scores=True
+                output_scores=True, 
+                do_sample=True,
+                num_return_sequences=k
             )
         
         # Decode and clean completions
         completions = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True, truncate_before_pattern=self.stopping_sequences) 
         return completions
 
-    def evaluate_completions(self, completions: List[str], samples: List[Dict[str, Any]], k: list = [1]) -> List[Dict[str, Any]]:
+    def evaluate_completions(self, completions: List[List[str]], samples: List[Dict[str, Any]], k: list = [1]) -> List[Dict[str, Any]]:
         """Evaluate completions using MBPP test cases for a batch"""
         results = []
 
@@ -71,9 +79,12 @@ def solution"""
         
         # Replace solution with actual function names
         completions_with_names = []
-        for completion, func_name in zip(completions, func_names):
-            completion_with_name = completion.replace('def solution', f'def {func_name}')
-            completions_with_names.append([completion_with_name])
+        for completion_list, func_name in zip(completions, func_names):
+            completions_for_prompt = []
+            for completion in completion_list:
+                completion_with_name = completion.replace('def solution', f'def {func_name}')
+                completions_for_prompt.append(completion_with_name)
+            completions_with_names.append(completions_for_prompt)
             
         # Evaluate all test cases at once
         results = self.code_eval.compute(
@@ -95,7 +106,8 @@ def solution"""
             
             prompts = self.prepare_prompts(batch)
             # Bunch of changes needed to generalize to multiple completions per prompt 
-            completions = self.generate_completions(prompts)
+            completions = self.generate_completions(prompts, k[-1])
+            completions = group_by_n(completions, k[-1])
             eval_results, completions = self.evaluate_completions(completions, batch, k)
             #import pdb; pdb.set_trace()
             
