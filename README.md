@@ -25,9 +25,7 @@ This project aims to determine the best methods for creating a distilled model f
 
 ## Model Information
 
-We are using the Llama 3.1 8B model, which is a multilingual large language model developed by Meta. It supports 8 languages: English, German, Spanish, French, Italian, Portuguese, Polish, and Dutch. The model has a context length of 128k tokens and has been trained on a diverse set of data up to December 2023.
-
-For more information about the model, please visit the [Llama 3.1 8B model page](https://huggingface.co/meta-llama/Llama-3.1-8B).
+We are using the SalesForce 2B model
 
 ## Contributing
 
